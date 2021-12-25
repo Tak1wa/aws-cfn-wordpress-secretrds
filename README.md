@@ -1,0 +1,1 @@
+# aws-cfn-wordpress-secretrds
