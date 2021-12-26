@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC Network Template
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: ""
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: ""
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.10.0/24
+    Description: ""
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: 10.0.11.0/24
+    Description: ""
+  MyCidr:
+    Type: String
+    Default: 0.0.0.0/32
+    Description: "http://checkip.amazonaws.com/"
+  AMIWeb:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0404778e217f54308
+  KeyPairWeb:
+    Description: ""
+    Type: AWS::EC2::KeyPair::KeyName
+  WebInstanceSize:
+    Description: ""
+    Type: String
+    Default: t3.small
+  DBInstanceType:
+    Type: String
+    Default: db.t3.small
+  DBVolumeSize:
+    Type: Number
+    Default: 20
+
+Resources:
+  ###########################
+  # Network
+  ###########################
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value: hoge-vpc
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      AvailabilityZone: !Select [ 0, "Fn::GetAZs": {Ref: "AWS::Region"}]
+      CidrBlock: !Ref PublicSubnet1Cidr
+      Tags:
+      - Key: Name
+        Value: hoge-public-1a-subnet
+      VpcId: !Ref VPC
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      AvailabilityZone: !Select [ 0, "Fn::GetAZs": {Ref: "AWS::Region"}]
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      Tags:
+      - Key: Name
+        Value: hoge-private-1a-subnet
+      VpcId: !Ref VPC
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      AvailabilityZone: !Select [ 1, "Fn::GetAZs": {Ref: "AWS::Region"}]
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      Tags:
+      - Key: Name
+        Value: hoge-private-1c-subnet
+      VpcId: !Ref VPC
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: hoge-igw
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: hoge-public-rt
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: AttachGateway
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: hoge-private-rt
+
+  ###########################
+  # Security Group
+  ###########################
+  WebSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "hoge-web-sg"
+      GroupName: hoge-web-sg
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: hoge-web-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref MyCidr
+  DbSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "for MariaDB"
+      GroupName: hoge-db-sg
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: hoge-db-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebSecurityGroup
+
+  ###########################
+  # EC2
+  ###########################
+  WebProfile: 
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Path: "/"
+      Roles: 
+        - !Ref WebRole
+      InstanceProfileName: hoge-web-profile
+  WebRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+        Path: "/"
+        RoleName: hoge-web-role
+        Tags: 
+        - Key: Name
+          Value: hoge-web-role
+        AssumeRolePolicyDocument: 
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+        ManagedPolicyArns: 
+          - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
+          - !Ref AllowSecretAccessPolicy
+  AllowSecretAccessPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+        ManagedPolicyName: "hoge-allow-access-secret-policy"
+        Path: "/"
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: 
+                - secretsmanager:GetResourcePolicy
+                - secretsmanager:GetSecretValue
+                - secretsmanager:DescribeSecret
+                - secretsmanager:ListSecretVersionIds
+              Resource: !Ref RdsMasterSecret
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      Tags:
+        - Key: Name
+          Value: hoge-wp
+      InstanceType: !Ref WebInstanceSize
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds: 
+        - !Ref WebSecurityGroup
+      ImageId: !Ref AMIWeb
+      IamInstanceProfile: !Ref WebProfile
+      KeyName: !Ref KeyPairWeb
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+          yum -y update
+          amazon-linux-extras install -y php7.4
+          yum -y install mysql httpd php-mbstring php-xml
+          wget http://ja.wordpress.org/latest-ja.tar.gz -P /tmp/
+          tar zxvf /tmp/latest-ja.tar.gz -C /tmp
+          cp -r /tmp/wordpress/* /var/www/html/
+          chown apache:apache -R /var/www/html
+          systemctl enable httpd.service
+          systemctl start httpd.service
+  WebServerEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value: hoge-wordpress-eip
+  WebServerIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref WebServer
+      EIP: !Ref WebServerEip
+
+  ###########################
+  # RDS
+  ###########################
+  RDSDBInstance:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBInstanceIdentifier: hoge-rds
+      Engine: mariadb
+      EngineVersion: 10.5.12
+      DBInstanceClass: !Ref DBInstanceType
+      AllocatedStorage: !Ref DBVolumeSize
+      StorageType: gp2
+      MultiAZ: false
+      VPCSecurityGroups: 
+        - !Ref DbSecurityGroup
+      DBSubnetGroupName: !Ref RDSDBSubnetGroup
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RdsMasterSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RdsMasterSecret, ':SecretString:password}}' ]]
+      EnableIAMDatabaseAuthentication: false
+  RdsMasterSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "hoge"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'''
+      Name: hoge-secret
+      Tags:
+        - Key: Name
+          Value: hoge-secret
+  RdsSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref RdsMasterSecret
+      TargetId: !Ref RDSDBInstance
+      TargetType: AWS::RDS::DBInstance
+  RDSDBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: hoge-dbsubnet
+      DBSubnetGroupName: hoge-dbsubnet
+      DBSubnetGroupDescription: "hoge-dbsubnet"
+      SubnetIds: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+Outputs:
+  WordPressURL:
+    Value: !Join ['', ['http://', !Ref WebServerEip, '/' ]]
