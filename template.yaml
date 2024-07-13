@@ -254,7 +254,7 @@ Resources:
     Properties:
       DBInstanceIdentifier: hoge-rds
       Engine: mariadb
-      EngineVersion: 10.5.12
+      EngineVersion: 10.11.6
       DBInstanceClass: !Ref DBInstanceType
       AllocatedStorage: !Ref DBVolumeSize
       StorageType: gp2
